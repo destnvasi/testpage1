@@ -1,75 +1,54 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
-const fetch = require('node-fetch');
-const HttpsProxyAgent = require('https-proxy-agent');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(express.json());
+// Security middleware
+app.use(helmet());
+app.disable('x-powered-by');
+
+// Rate limiting (100 requests/15min)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests from this IP'
+});
+app.use('/proxy', limiter);
+
+// Serve static files
 app.use(express.static('public'));
 
-// Security Headers
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  next();
-});
-
-// Proxy Test Endpoint
-app.post('/api/proxy-test', async (req, res) => {
-  try {
-    const { proxy, url = 'https://httpbin.org/ip' } = req.body;
-    
-    // Validate proxy format
-    if (!/^[\d\.]+:\d+$/.test(proxy)) {
-      return res.status(400).json({ error: 'Invalid proxy format (IP:PORT required)' });
-    }
-
-    const [host, port] = proxy.split(':');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const response = await fetch(url, {
-      agent: new HttpsProxyAgent(`http://${host}:${port}`),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeout);
-    res.json(await response.json());
-  } catch (err) {
-    res.status(500).json({ 
-      error: err.name === 'AbortError' ? 'Proxy timeout' : 'Proxy connection failed'
-    });
-  }
-});
-
-// Main Proxy Gateway
-app.use('/gateway', createProxyMiddleware({
+// Proxy endpoint
+app.use('/proxy', createProxyMiddleware({
   target: false,
   changeOrigin: true,
   router: (req) => {
-    const proxy = req.query.proxy;
-    if (!proxy) throw new Error('Proxy not specified');
-    return `http://${proxy}`;
+    const targetUrl = new URL(req.query.url);
+    return `${targetUrl.protocol}//${targetUrl.hostname}`;
   },
   pathRewrite: (path, req) => {
-    try {
-      return new URL(req.query.url).pathname;
-    } catch {
-      return '/';
-    }
+    const targetUrl = new URL(req.query.url);
+    return targetUrl.pathname + targetUrl.search;
   },
   onError: (err, req, res) => {
-    res.status(500).send('Proxy error: ' + err.message);
+    res.status(500).json({ error: 'Proxy error' });
   }
 }));
 
-// Serve Frontend
+// Health check
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+// Frontend route
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Running on port
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
