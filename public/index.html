@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Working Proxy Browser</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Secure Proxy Browser</h1>
+    
+    <div class="proxy-section">
+      <h2>1. Configure Proxy</h2>
+      <div class="input-group">
+        <input type="text" id="proxyIp" placeholder="IP (e.g., 123.123.123.123)">
+        <span>:</span>
+        <input type="text" id="proxyPort" placeholder="Port (e.g., 8080)">
+      </div>
+      <button id="testBtn">Test Proxy</button>
+      <div id="proxyStatus"></div>
+    </div>
+
+    <div class="browse-section">
+      <h2>2. Browse Securely</h2>
+      <input type="text" id="url" placeholder="https://example.com">
+      <button id="goBtn">Go</button>
+    </div>
+
+    <iframe id="proxyFrame" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const testBtn = document.getElementById('testBtn');
+      const goBtn = document.getElementById('goBtn');
+      const proxyStatus = document.getElementById('proxyStatus');
+      const proxyFrame = document.getElementById('proxyFrame');
+
+      // Test proxy
+      testBtn.addEventListener('click', async () => {
+        const ip = document.getElementById('proxyIp').value.trim();
+        const port = document.getElementById('proxyPort').value.trim();
+
+        if (!ip || !port) {
+          proxyStatus.innerHTML = '<div class="error">Enter IP and Port</div>';
+          return;
+        }
+
+        proxyStatus.innerHTML = '<div class="loading">Testing proxy...</div>';
+
+        try {
+          const response = await fetch('/api/proxy-test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ proxy: `${ip}:${port}` })
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            proxyStatus.innerHTML = `
+              <div class="success">
+                ✅ Working Proxy: ${ip}:${port}<br>
+                <small>${JSON.stringify(data)}</small>
+              </div>
+            `;
+            localStorage.setItem('lastProxy', `${ip}:${port}`);
+          } else {
+            throw new Error(data.error || 'Proxy failed');
+          }
+        } catch (err) {
+          proxyStatus.innerHTML = `<div class="error">❌ ${err.message}</div>`;
+        }
+      });
+
+      // Browse via proxy
+      goBtn.addEventListener('click', () => {
+        const url = document.getElementById('url').value.trim();
+        const proxy = localStorage.getItem('lastProxy');
+
+        if (!proxy) {
+          alert('Test a proxy first!');
+          return;
+        }
+
+        if (!url) {
+          alert('Enter a URL');
+          return;
+        }
+
+        // Validate URL format
+        let targetUrl = url;
+        if (!/^https?:\/\//i.test(url)) {
+          targetUrl = `https://${url}`;
+        }
+
+        proxyFrame.style.display = 'block';
+        proxyFrame.src = `/gateway?url=${encodeURIComponent(targetUrl)}&proxy=${proxy}`;
+      });
+
+      // Load last used proxy
+      const lastProxy = localStorage.getItem('lastProxy');
+      if (lastProxy) {
+        const [ip, port] = lastProxy.split(':');
+        document.getElementById('proxyIp').value = ip;
+        document.getElementById('proxyPort').value = port;
+      }
+    });
+  </script>
+</body>
+</html>
